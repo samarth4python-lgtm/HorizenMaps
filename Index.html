@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>HorizonMaps</title>
+
+<link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css"/>
+
+<style>
+
+body{
+margin:0;
+font-family:Arial, sans-serif;
+}
+
+#map{
+height:100vh;
+}
+
+#searchBox{
+position:absolute;
+top:20px;
+left:50%;
+transform:translateX(-50%);
+background:white;
+padding:15px;
+border-radius:10px;
+box-shadow:0 4px 15px rgba(0,0,0,0.3);
+z-index:1000;
+width:360px;
+}
+
+input{
+width:100%;
+padding:8px;
+margin-top:5px;
+border-radius:6px;
+border:1px solid #ccc;
+}
+
+button{
+margin-top:6px;
+padding:6px 10px;
+border:none;
+border-radius:6px;
+cursor:pointer;
+background:#4285F4;
+color:white;
+}
+
+.mode{
+background:#eee;
+color:black;
+}
+
+.mode.active{
+background:#4285F4;
+color:white;
+}
+
+#info{
+margin-top:10px;
+font-size:14px;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div id="searchBox">
+
+<b>🌍 HorizonMaps</b><br>
+
+<input id="start" placeholder="Start location (leave blank for your location)">
+<input id="destination" placeholder="Destination">
+
+<div>
+<button class="mode active" onclick="setMode('driving',this)">🚗</button>
+<button class="mode" onclick="setMode('walking',this)">🚶</button>
+<button class="mode" onclick="setMode('train',this)">🚆</button>
+<button onclick="go()">Route</button>
+</div>
+
+<div id="info">
+Distance: --<br>
+Time: --
+</div>
+
+</div>
+
+<div id="map"></div>
+
+<script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+
+<script>
+
+var map = L.map('map').setView([37.7749,-122.4194],13);
+
+L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png',{
+maxZoom:19
+}).addTo(map);
+
+var mode="driving";
+var routeLayer;
+var startMarker;
+var destMarker;
+
+var userLat,userLon;
+
+navigator.geolocation.getCurrentPosition(function(pos){
+
+userLat = pos.coords.latitude;
+userLon = pos.coords.longitude;
+
+map.setView([userLat,userLon],13);
+
+startMarker = L.marker([userLat,userLon]).addTo(map)
+.bindPopup("Your Location");
+
+});
+
+function setMode(m,btn){
+
+mode=m;
+
+document.querySelectorAll(".mode").forEach(b=>b.classList.remove("active"));
+btn.classList.add("active");
+
+}
+
+async function geocode(place){
+
+let res = await fetch(
+"https://nominatim.openstreetmap.org/search?format=json&q="+place
+);
+
+let data = await res.json();
+
+return [parseFloat(data[0].lat),parseFloat(data[0].lon)];
+
+}
+
+async function go(){
+
+let startText=document.getElementById("start").value;
+let destText=document.getElementById("destination").value;
+
+let startLat=userLat;
+let startLon=userLon;
+
+if(startText!=""){
+
+let s = await geocode(startText);
+startLat=s[0];
+startLon=s[1];
+
+if(startMarker) map.removeLayer(startMarker);
+
+startMarker=L.marker([startLat,startLon]).addTo(map)
+.bindPopup("Start");
+
+}
+
+let d = await geocode(destText);
+
+setDestination(startLat,startLon,d[0],d[1]);
+
+}
+
+function setDestination(startLat,startLon,lat,lon){
+
+if(destMarker) map.removeLayer(destMarker);
+
+destMarker=L.marker([lat,lon]).addTo(map)
+.bindPopup("Destination");
+
+drawRoute(startLat,startLon,lat,lon);
+
+}
+
+map.on("click",function(e){
+
+setDestination(userLat,userLon,e.latlng.lat,e.latlng.lng);
+
+});
+
+async function drawRoute(slat,slon,dlat,dlon){
+
+let profile="driving";
+
+if(mode=="walking") profile="foot";
+if(mode=="train") profile="driving";
+
+let route=await fetch(
+"https://router.project-osrm.org/route/v1/"+profile+"/"+slon+","+slat+";"+dlon+","+dlat+"?overview=full&geometries=geojson"
+);
+
+let data=await route.json();
+
+let coords=data.routes[0].geometry.coordinates.map(c=>[c[1],c[0]]);
+
+if(routeLayer) map.removeLayer(routeLayer);
+
+routeLayer=L.polyline(coords,{color:"#4285F4",weight:6}).addTo(map);
+
+map.fitBounds(routeLayer.getBounds());
+
+let distance=data.routes[0].distance/1000;
+let time=data.routes[0].duration/60;
+
+document.getElementById("info").innerHTML=
+"Distance: "+distance.toFixed(2)+" km<br>"+
+"Time: "+time.toFixed(0)+" minutes";
+
+}
+
+</script>
+
+</body>
+</html>
